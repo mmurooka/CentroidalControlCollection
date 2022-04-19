@@ -59,7 +59,7 @@ TEST(TestDdpZmp, Test1)
   std::string file_path = "/tmp/TestDdpZmp.txt";
   std::ofstream ofs(file_path);
   ofs << "time com_pos_x com_pos_y com_pos_z planned_zmp_x planned_zmp_y planned_force_z ref_zmp_x ref_zmp_y ref_com_z "
-         "capture_point_x capture_point_y ddp_iter computation_time"
+         "capture_point_x capture_point_y capture_point_stepping_x capture_point_stepping_y ddp_iter computation_time"
       << std::endl;
 
   // Setup control loop
@@ -98,10 +98,24 @@ TEST(TestDdpZmp, Test1)
     const auto & ref_data = ref_data_func(t);
     Eigen::Vector2d capture_point =
         (initial_param.pos + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * initial_param.vel).head<2>();
+    double stepping_time = t + 1.0; // Next swing_start_time
+    if(footstep_manager.footstep_list_.size() >= 1 && t < footstep_manager.footstep_list_[0].swing_start_time)
+    {
+      stepping_time = footstep_manager.footstep_list_[0].swing_start_time;
+    }
+    else if(footstep_manager.footstep_list_.size() >= 2)
+    {
+      stepping_time = footstep_manager.footstep_list_[1].swing_start_time;
+    }
+    int x_list_idx = std::clamp(static_cast<int>((stepping_time - t) / horizon_dt), 0, horizon_steps - 1);
+    CCC::DdpZmp::DdpProblem::StateDimVector x_stepping = ddp.ddp_solver_->controlData().x_list[x_list_idx];
+    Eigen::Vector2d capture_point_stepping =
+        Eigen::Vector2d(x_stepping[0] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_stepping[1],
+                        x_stepping[2] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_stepping[3]);
     ofs << t << " " << sim.state_.pos().transpose() << " " << planned_data.zmp.transpose() << " "
         << planned_data.force_z << " " << ref_data.zmp.transpose() << " " << ref_com_height << " "
-        << capture_point.transpose() << " " << ddp.ddp_solver_->traceDataList().back().iter << " "
-        << computation_duration_list.back() << std::endl;
+        << capture_point.transpose() << " " << capture_point_stepping.transpose() << " "
+        << ddp.ddp_solver_->traceDataList().back().iter << " " << computation_duration_list.back() << std::endl;
 
     // Check
     EXPECT_LT((planned_data.zmp - ref_data.zmp).norm(), 0.1); // [m]
@@ -142,8 +156,10 @@ TEST(TestDdpZmp, Test1)
   std::cout << "Run the following commands in gnuplot:\n"
             << "  set key autotitle columnhead\n"
             << "  set key noenhanced\n"
-            << "  plot \"" << file_path << "\" u 1:2 w lp, \"\" u 1:5 w lp, \"\" u 1:8 w l lw 2 # x\n"
-            << "  plot \"" << file_path << "\" u 1:3 w lp, \"\" u 1:6 w lp, \"\" u 1:9 w l lw 2 # y\n"
+            << "  plot \"" << file_path
+            << "\" u 1:2 w lp, \"\" u 1:5 w lp, \"\" u 1:8 w l lw 2, \"\" u 1:11 w lp, \"\" u 1:13 w lp # x\n"
+            << "  plot \"" << file_path
+            << "\" u 1:3 w lp, \"\" u 1:6 w lp, \"\" u 1:9 w l lw 2, \"\" u 1:12 w lp, \"\" u 1:14 w lp # y\n"
             << "  plot \"" << file_path << "\" u 1:4 w lp, \"\" u 1:10 w l lw 2 # z\n"
             << "  plot \"" << file_path << "\" u 1:13 w lp # ddp_iter\n"
             << "  plot \"" << file_path << "\" u 1:14 w lp # computation_time\n";
