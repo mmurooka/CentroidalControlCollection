@@ -143,6 +143,16 @@ TEST(TestDdpZmp, Test1)
       qp_coeff.setup(4, 0, 0);
       qp_coeff.obj_mat_ = ls_coeff.transpose() * ls_coeff;
       qp_coeff.obj_vec_ = ls_coeff.transpose() * ls_const;
+      const Eigen::Vector2d & foot_size = footstep_manager.foot_size_;
+      Footstance tmp_footstance = footstep_manager.footstance_;
+      tmp_footstance.erase(footstep_manager.footstep_list_[0].foot);
+      auto support_region_ss = tmp_footstance.supportRegion();
+      qp_coeff.x_min_.head<2>() = support_region_ss[0] - 0.5 * foot_size;
+      qp_coeff.x_max_.head<2>() = support_region_ss[1] + 0.5 * foot_size;
+      tmp_footstance.emplace(footstep_manager.footstep_list_[0].foot, footstep_manager.footstep_list_[0].pos);
+      auto support_region_ds = tmp_footstance.supportRegion();
+      qp_coeff.x_min_.tail<2>() = support_region_ds[0] - 0.5 * foot_size;
+      qp_coeff.x_max_.tail<2>() = support_region_ds[1] + 0.5 * foot_size;
 
       // Solve QP
       auto qp_solver = QpSolverCollection::allocateQpSolver(QpSolverCollection::QpSolverType::QLD);
