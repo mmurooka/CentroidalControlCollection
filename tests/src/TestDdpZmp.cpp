@@ -97,6 +97,10 @@ TEST(TestDdpZmp, Test1)
         * std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::system_clock::now() - start_time)
               .count());
 
+    // Apply support region constraints
+    const auto & zmp_limits = footstep_manager.zmpLimits(t);
+    planned_data.zmp = planned_data.zmp.cwiseMax(zmp_limits[0]).cwiseMin(zmp_limits[1]);
+
     ////////////////
     // Calculate capture point
     Eigen::Vector2d capture_point =
