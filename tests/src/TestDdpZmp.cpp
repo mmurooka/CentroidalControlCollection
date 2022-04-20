@@ -59,7 +59,7 @@ TEST(TestDdpZmp, Test1)
   std::string file_path = "/tmp/TestDdpZmp.txt";
   std::ofstream ofs(file_path);
   ofs << "time com_pos_x com_pos_y com_pos_z planned_zmp_x planned_zmp_y planned_force_z ref_zmp_x ref_zmp_y ref_com_z "
-         "capture_point_x capture_point_y capture_point_stepping_x capture_point_stepping_y ddp_iter computation_time"
+         "capture_point_x capture_point_y capture_point_ds_end_x capture_point_ds_end_y ddp_iter computation_time"
       << std::endl;
 
   // Setup control loop
@@ -94,27 +94,35 @@ TEST(TestDdpZmp, Test1)
         * std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::system_clock::now() - start_time)
               .count());
 
-    // Dump
-    const auto & ref_data = ref_data_func(t);
+    ////////////////
+    // Calculate capture point
     Eigen::Vector2d capture_point =
         (initial_param.pos + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * initial_param.vel).head<2>();
-    double stepping_time = t + 1.0; // Next swing_start_time
+
+    // Calculate ds_end_time
+    double ds_end_time = t + 1.0; // Next swing_start_time
     if(footstep_manager.footstep_list_.size() >= 1 && t < footstep_manager.footstep_list_[0].swing_start_time)
     {
-      stepping_time = footstep_manager.footstep_list_[0].swing_start_time;
+      ds_end_time = footstep_manager.footstep_list_[0].swing_start_time;
     }
     else if(footstep_manager.footstep_list_.size() >= 2)
     {
-      stepping_time = footstep_manager.footstep_list_[1].swing_start_time;
+      ds_end_time = footstep_manager.footstep_list_[1].swing_start_time;
     }
-    int x_list_idx = std::clamp(static_cast<int>((stepping_time - t) / horizon_dt), 0, horizon_steps - 1);
-    CCC::DdpZmp::DdpProblem::StateDimVector x_stepping = ddp.ddp_solver_->controlData().x_list[x_list_idx];
-    Eigen::Vector2d capture_point_stepping =
-        Eigen::Vector2d(x_stepping[0] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_stepping[1],
-                        x_stepping[2] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_stepping[3]);
+
+    // Calculate capture_point_ds_end
+    int idx_ds_end = std::clamp(static_cast<int>((ds_end_time - t) / horizon_dt), 0, horizon_steps - 1);
+    CCC::DdpZmp::DdpProblem::StateDimVector x_ds_end = ddp.ddp_solver_->controlData().x_list[idx_ds_end];
+    Eigen::Vector2d capture_point_ds_end =
+        Eigen::Vector2d(x_ds_end[0] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_ds_end[1],
+                        x_ds_end[2] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_ds_end[3]);
+    ////////////////
+
+    // Dump
+    const auto & ref_data = ref_data_func(t);
     ofs << t << " " << sim.state_.pos().transpose() << " " << planned_data.zmp.transpose() << " "
         << planned_data.force_z << " " << ref_data.zmp.transpose() << " " << ref_com_height << " "
-        << capture_point.transpose() << " " << capture_point_stepping.transpose() << " "
+        << capture_point.transpose() << " " << capture_point_ds_end.transpose() << " "
         << ddp.ddp_solver_->traceDataList().back().iter << " " << computation_duration_list.back() << std::endl;
 
     // Check
