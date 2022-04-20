@@ -125,10 +125,13 @@ TEST(TestDdpZmp, Test1)
         Eigen::Vector2d(x_ds_end[0] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_ds_end[1],
                         x_ds_end[2] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_ds_end[3]);
 
+    // Predict capture point
     Eigen::Vector2d capture_point_ds_end_constrained = Eigen::Vector2d::Zero();
     if(footstep_manager.footstep_list_.size() >= 2 && footstep_manager.footstep_list_[0].swing_start_time <= t
        && t < footstep_manager.footstep_list_[0].swing_end_time)
     {
+      auto start_time = std::chrono::system_clock::now();
+
       // Calculate variables
       double omega = std::sqrt(CCC::constants::g / sim.state_.pos().z());
       // End time of single-support phase (i.e., current swing_end_time)
@@ -167,6 +170,14 @@ TEST(TestDdpZmp, Test1)
       // Calculate capture point with support region constraints
       Eigen::Vector2d capture_point_ss_end_constrained = exp_ss * (capture_point - zmp_ss) + zmp_ss;
       capture_point_ds_end_constrained = exp_ds * (capture_point_ss_end_constrained - zmp_ds) + zmp_ds;
+
+      // Print computation duration
+      // std::cout << "computation time to predict capture point: "
+      //           << 1e3
+      //                  * std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::system_clock::now()
+      //                                                                              - start_time)
+      //                        .count()
+      //           << " [ms]" << std::endl;
     }
     ////////////////
 
