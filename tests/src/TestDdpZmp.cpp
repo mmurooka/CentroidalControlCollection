@@ -6,6 +6,8 @@
 #include <fstream>
 #include <iostream>
 
+#include <qp_solver_collection/QpSolverCollection.h>
+
 #include <CCC/Constants.h>
 #include <CCC/DdpZmp.h>
 
@@ -59,7 +61,8 @@ TEST(TestDdpZmp, Test1)
   std::string file_path = "/tmp/TestDdpZmp.txt";
   std::ofstream ofs(file_path);
   ofs << "time com_pos_x com_pos_y com_pos_z planned_zmp_x planned_zmp_y planned_force_z ref_zmp_x ref_zmp_y ref_com_z "
-         "capture_point_x capture_point_y capture_point_ds_end_x capture_point_ds_end_y ddp_iter computation_time"
+         "capture_point_x capture_point_y capture_point_ds_end_x capture_point_ds_end_y "
+         "capture_point_ds_end_constrained_x capture_point_ds_end_constrained_y ddp_iter computation_time"
       << std::endl;
 
   // Setup control loop
@@ -100,7 +103,8 @@ TEST(TestDdpZmp, Test1)
         (initial_param.pos + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * initial_param.vel).head<2>();
 
     // Calculate ds_end_time
-    double ds_end_time = t + 1.0; // Next swing_start_time
+    // End time of double-support phase (i.e., next swing_start_time)
+    double ds_end_time = t + 1.0;
     if(footstep_manager.footstep_list_.size() >= 1 && t < footstep_manager.footstep_list_[0].swing_start_time)
     {
       ds_end_time = footstep_manager.footstep_list_[0].swing_start_time;
@@ -116,6 +120,40 @@ TEST(TestDdpZmp, Test1)
     Eigen::Vector2d capture_point_ds_end =
         Eigen::Vector2d(x_ds_end[0] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_ds_end[1],
                         x_ds_end[2] + std::sqrt(sim.state_.pos().z() / CCC::constants::g) * x_ds_end[3]);
+
+    Eigen::Vector2d capture_point_ds_end_constrained = Eigen::Vector2d::Zero();
+    if(footstep_manager.footstep_list_.size() >= 2 && footstep_manager.footstep_list_[0].swing_start_time <= t
+       && t < footstep_manager.footstep_list_[0].swing_end_time)
+    {
+      // Calculate variables
+      double omega = std::sqrt(CCC::constants::g / sim.state_.pos().z());
+      // End time of single-support phase (i.e., current swing_end_time)
+      double ss_end_time = footstep_manager.footstep_list_[0].swing_end_time;
+      double exp_ss = std::exp(omega * (ss_end_time - t));
+      double exp_ds = std::exp(omega * (ds_end_time - ss_end_time));
+
+      // Calculate coefficients of least-square
+      Eigen::Matrix<double, 2, 4> ls_coeff = Eigen::Matrix<double, 2, 4>::Zero();
+      ls_coeff.leftCols<2>().diagonal().setConstant(exp_ds * (1 - exp_ss));
+      ls_coeff.rightCols<2>().diagonal().setConstant(1 - exp_ds);
+      Eigen::Vector2d ls_const = exp_ss * exp_ds * capture_point - capture_point_ds_end;
+
+      // Set QP coefficients
+      QpSolverCollection::QpCoeff qp_coeff;
+      qp_coeff.setup(4, 0, 0);
+      qp_coeff.obj_mat_ = ls_coeff.transpose() * ls_coeff;
+      qp_coeff.obj_vec_ = ls_coeff.transpose() * ls_const;
+
+      // Solve QP
+      auto qp_solver = QpSolverCollection::allocateQpSolver(QpSolverCollection::QpSolverType::QLD);
+      Eigen::VectorXd qp_sol = qp_solver->solve(qp_coeff);
+      Eigen::Vector2d zmp_ss = qp_sol.head<2>();
+      Eigen::Vector2d zmp_ds = qp_sol.tail<2>();
+
+      // Calculate capture point with support region constraints
+      Eigen::Vector2d capture_point_ss_end_constrained = exp_ss * (capture_point - zmp_ss) + zmp_ss;
+      capture_point_ds_end_constrained = exp_ds * (capture_point_ss_end_constrained - zmp_ds) + zmp_ds;
+    }
     ////////////////
 
     // Dump
@@ -123,7 +161,8 @@ TEST(TestDdpZmp, Test1)
     ofs << t << " " << sim.state_.pos().transpose() << " " << planned_data.zmp.transpose() << " "
         << planned_data.force_z << " " << ref_data.zmp.transpose() << " " << ref_com_height << " "
         << capture_point.transpose() << " " << capture_point_ds_end.transpose() << " "
-        << ddp.ddp_solver_->traceDataList().back().iter << " " << computation_duration_list.back() << std::endl;
+        << capture_point_ds_end_constrained.transpose() << " " << ddp.ddp_solver_->traceDataList().back().iter << " "
+        << computation_duration_list.back() << std::endl;
 
     // Check
     EXPECT_LT((planned_data.zmp - ref_data.zmp).norm(), 0.1); // [m]
