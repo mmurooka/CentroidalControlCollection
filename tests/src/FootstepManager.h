@@ -15,6 +15,7 @@
 #include <CCC/FootGuidedControl.h>
 #include <CCC/IntrinsicallyStableMpc.h>
 #include <CCC/LinearMpcZmp.h>
+#include <CCC/PolynomialZmpLaplaceTransform.h>
 
 /** \brief Foot. */
 enum class Foot
@@ -355,6 +356,55 @@ public:
     CCC::IntrinsicallyStableMpc::RefData ref_data;
     ref_data.zmp = refZmp(t);
     ref_data.zmp_limits = zmpLimits(t);
+    return ref_data;
+  }
+
+  /** \brief Make PolynomialZmpLaplaceTransform::RefData instance.
+      \param t time
+      \param horizon_duration horizon duration
+  */
+  inline CCC::PolynomialZmpLaplaceTransform::RefData makePolynomialZmpLaplaceTransformRefData(
+      double t,
+      double horizon_duration) const
+  {
+    CCC::PolynomialZmpLaplaceTransform::RefData ref_data;
+    for(const auto & ref_zmp_kv : ref_zmp_list_)
+    {
+      double ref_time = ref_zmp_kv.first;
+      if(ref_time < t)
+      {
+        continue;
+      }
+      else if(ref_time >= t + horizon_duration)
+      {
+        break;
+      }
+      ref_data.contact_switch_time_list.push_back(ref_time);
+    }
+    ref_data.contact_switch_time_list.push_back(t + horizon_duration);
+    double switch_time_thre = 5e-3; // [sec]
+    for(auto it = ref_data.contact_switch_time_list.begin(); it != ref_data.contact_switch_time_list.end();)
+    {
+      double prev_time;
+      if(it == ref_data.contact_switch_time_list.begin())
+      {
+        prev_time = t;
+      }
+      else
+      {
+        prev_time = *(std::prev(it));
+      }
+      if(*it - prev_time < switch_time_thre)
+      {
+        it = ref_data.contact_switch_time_list.erase(it);
+      }
+      else
+      {
+        it++;
+      }
+    }
+    ref_data.last_capture_point = refZmp(t + horizon_duration);
+    ref_data.zmp_limits_func = [this](double _t) { return this->zmpLimits(_t); };
     return ref_data;
   }
 
